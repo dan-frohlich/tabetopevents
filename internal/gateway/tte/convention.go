@@ -1,5 +1,102 @@
 package tte
 
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
+
+func (s Session) GetCachedActiveConventions() (cache ConventionCache, err error) {
+	var b []byte
+	b, err = s.client.db.Read("conventions", "conventions", "json")
+	if err != nil {
+		s.log.Error("read", "error", err)
+		return cache, err
+	}
+	s.log.Debug("read", "bytes", len(b))
+	c := &Conventions{}
+	err = json.Unmarshal(b, c)
+	if err != nil {
+		return cache, err
+	}
+	if len(c.Items) == 0 {
+		return cache, fmt.Errorf("cache contained zero items")
+	}
+	cache.Conventions = c.Items
+	cache.Age, err = s.client.db.CacheAge("conventions", "conventions", "json")
+
+	return cache, err
+}
+
+func (s Session) GetActiveConventions() (cz []Convention, err error) {
+	cr, err := s.getConventionsByPage(1)
+	if err != nil {
+		return cz, err
+	}
+	if cr.Err != nil {
+		return cz, cr.Err
+	}
+	cz = append(cz, cr.Result.Items...)
+	if cr.Result.Paging == nil {
+		return cz, err
+	}
+
+	nextPage := cr.Result.Paging.NextPageNumber
+	pageCount := cr.Result.Paging.TotalPages
+	if pageCount == 0 {
+		return cz, err
+	}
+	for i := nextPage; i <= pageCount; i++ {
+		cr, _ = s.getConventionsByPage(int(i))
+		if cr.Err != nil {
+			return cz, fmt.Errorf("[%d]: (%s) %s", cr.Err.Code, cr.Err.Data, cr.Err.Message)
+		}
+		cz = append(cz, cr.Result.Items...)
+	}
+	c := &Conventions{Items: cz}
+	if b, e := json.Marshal(c); e == nil {
+		s.client.db.Store("conventions", "conventions", "json", b)
+	}
+	return cz, err
+}
+
+func (s Session) getConventionsByPage(page int) (cr ConventionRespose, err error) {
+	params := map[string]string{
+		"session_id":      s.ID,
+		"_page_number":    fmt.Sprintf("%d", page),
+		"_items_per_page": "100",
+	}
+	var b []byte
+	b, err = s.client.httpGet("/api/convention", params, nil)
+	if err != nil {
+		return cr, err
+	}
+
+	err = json.Unmarshal(b, &cr)
+	if err != nil {
+		return cr, err
+	}
+	if cr.Err != nil {
+		return cr, cr.Err
+	}
+	return cr, err
+}
+
+type ConventionCache struct {
+	Conventions []Convention
+	Age         time.Duration
+}
+
+type ConventionRespose struct {
+	Result Conventions `json:"result"`
+	Err    *ApiError   `json:"error"`
+}
+
+type Conventions struct {
+	Items  []Convention `json:"items"`
+	Paging *Paging      `json:"paging"`
+}
+
 type Convention struct {
 	EndDate       string `json:"end_date"`
 	GeolocationID string `json:"geolocation_id"`

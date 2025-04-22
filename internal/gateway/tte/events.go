@@ -1,5 +1,79 @@
 package tte
 
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
+
+func (s Session) GetCachedConventionEvents(con Convention) (cache ConventionEventCache, err error) {
+	c := &ConventionEvents{}
+	var b []byte
+	b, err = s.client.db.Read("events", con.ViewURI, "json")
+	if err != nil {
+		return cache, err
+	}
+	err = json.Unmarshal(b, c)
+	if err != nil {
+		return cache, err
+	}
+	cache.ConventionEvents = c.Items
+	cache.Age, err = s.client.db.CacheAge("events", con.ViewURI, "json")
+	return cache, err
+}
+
+func (s Session) GetConventionEvents(con Convention) (ez []ConventionEvent, err error) {
+	conID := con.ID
+	var resp ConventionEventsRespose
+	resp, err = s.getConventionEventsByPage(conID, 1)
+	if err != nil {
+		return ez, err
+	}
+	ez = append(ez, resp.Result.Items...)
+
+	nextPage := resp.Result.Paging.NextPageNumber
+	pageCount := resp.Result.Paging.TotalPages
+	if pageCount == 0 {
+		return ez, err
+	}
+	for i := nextPage; i <= pageCount; i++ {
+		s.log.Debug("getting pages", "current", i, "last", resp.Result.Paging.TotalPages)
+		resp, _ = s.getConventionEventsByPage(conID, int(i))
+		if resp.Err != nil {
+			return ez, fmt.Errorf("[%d]: (%s) %s", resp.Err.Code, resp.Err.Data, resp.Err.Message)
+		}
+		ez = append(ez, resp.Result.Items...)
+	}
+	c := &ConventionEvents{Items: ez}
+	var b []byte
+	if b, err = json.Marshal(c); err == nil {
+		s.client.db.Store("events", con.ViewURI, "json", b)
+	}
+	return ez, err
+
+}
+
+func (s Session) getConventionEventsByPage(conID string, page int) (cr ConventionEventsRespose, err error) {
+	params := map[string]string{
+		"session_id":             s.ID,
+		"_page_number":           fmt.Sprintf("%d", page),
+		"_items_per_page":        "100",
+		"_include_relationships": "1",
+	}
+	uri := fmt.Sprintf("/api/convention/%s/events", conID)
+	var b []byte
+	b, err = s.client.httpGet(uri, params, nil)
+
+	cer := ConventionEventsRespose{}
+	err = json.Unmarshal(b, &cer)
+	return cer, err
+}
+
+type ConventionEventCache struct {
+	ConventionEvents []ConventionEvent
+	Age              time.Duration
+}
+
 type ConventionEventsRespose struct {
 	Result ConventionEvents `json:"result"`
 	Err    *ApiError        `json:"error"`

@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/dan-frohlich/tabetopevents/internal/gateway/tte"
 	"github.com/dan-frohlich/tabetopevents/internal/logging"
@@ -35,12 +36,55 @@ func main() {
 	// fmt.Println("selected:", con.Name)
 	// os.Exit(1)
 
-	var ev []tte.ConventionEvent
-	ev, err = getEvents(log, s, con)
+	var evz []tte.ConventionEvent
+	evz, err = getEvents(log, s, con)
 	if err != nil {
 		log.Fatal("failed to get events", "con", con.ViewURI, "error", err)
 	}
-	log.Info("found", "event_count", len(ev))
+	log.Info("found", "event_count", len(evz))
+
+	counts := make(map[string]int)
+	// eventTypeByID := make(map[string]tte.ConventionEventType)
+	// eventTypeByName := make(map[string]tte.ConventionEventType)
+	eventTypeByURI := make(map[string]tte.ConventionEventType)
+	eventURIByTypeName := make(map[string]string)
+
+	var (
+		cet tte.ConventionEventType
+		ok  bool
+	)
+	for _, ev := range evz {
+		if cet, ok = eventTypeByURI[ev.Relationships.Type]; !ok {
+			cet, err = s.GetConventionEventType(ev.Relationships.Type)
+			if err != nil {
+				log.Error("failed to get event type from event", "event_type_uri", ev.Relationships.Type, "event_number", ev.EventNumber, "error", err)
+			}
+			eventTypeByURI[ev.Relationships.Type] = cet
+			eventURIByTypeName[cet.Name] = ev.Relationships.Type
+		}
+		counts[cet.Name] += 1
+	}
+
+	log.Info("found", "event_type_count", len(counts))
+
+	var typeNames = make([]string, 0, len(counts))
+	for k := range counts {
+		typeNames = append(typeNames, k)
+	}
+	sort.Strings(typeNames)
+	var out string
+	out = "  COUNT - EVENT TYPE           - URI\n"
+	for _, tn := range typeNames {
+		out += fmt.Sprintf("%7d - %-20s - %s\n", counts[tn], trimLen(tn, 20), eventURIByTypeName[tn])
+	}
+	fmt.Println(lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true).Italic(true).Render(out[:len(out)-1]))
+}
+
+func trimLen(s string, maxLex int) string {
+	if len(s) < maxLex {
+		return s
+	}
+	return s[:maxLex]
 }
 
 func getEvents(log logging.Logger, s tte.Session, con tte.Convention) (events []tte.ConventionEvent, err error) {
