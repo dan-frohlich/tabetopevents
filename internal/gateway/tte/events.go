@@ -69,6 +69,28 @@ func (s Session) getConventionEventsByPage(conID string, page int) (cr Conventio
 	return cer, err
 }
 
+type FilterableConventionEvents []ConventionEvent
+type EventPredicate func(ConventionEvent) bool
+
+func (ez FilterableConventionEvents) Filter(predicates []EventPredicate) (filtered FilterableConventionEvents) {
+	if len(predicates) == 0 {
+		return ez
+	}
+	for _, e := range ez {
+		var allowed bool = true
+		for _, p := range predicates {
+			allowed = allowed && p(e)
+			if !allowed {
+				break
+			}
+		}
+		if allowed {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
+}
+
 type ConventionEventCache struct {
 	ConventionEvents []ConventionEvent
 	Age              time.Duration
