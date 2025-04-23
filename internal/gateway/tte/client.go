@@ -43,7 +43,8 @@ type SessionResponse struct {
 	Err     *ApiError `json:"error"`
 }
 
-func (c Client) RestoreSession(log logging.Log) (s Session, err error) {
+func (c Client) RestoreSession() (s Session, err error) {
+	var log logging.Logger = c.log
 	var out []byte
 	out, err = c.db.Read("session", "session", "json")
 	if err != nil {
@@ -69,7 +70,8 @@ func (c Client) RestoreSession(log logging.Log) (s Session, err error) {
 	return sr.Session, nil
 }
 
-func (c Client) NewSession(log logging.Log, userName string, password string) (s Session, err error) {
+func (c Client) NewSession(userName string, password string) (s Session, err error) {
+	var log logging.Logger = c.log
 	params := map[string]string{
 		"username": userName,
 		"password": password,

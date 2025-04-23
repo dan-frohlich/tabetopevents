@@ -12,7 +12,7 @@ type Session struct {
 	UID      string `json:"user_id"`
 	userName string
 	client   Client
-	log      logging.Log
+	log      logging.Logger
 }
 
 type ApiError struct {

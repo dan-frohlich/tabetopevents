@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +19,8 @@ import (
 
 func main() {
 	log := logging.Log{Level: logging.LogLevelInfo}
+	a := app{log: log, db: tte.NewDB(log)}
+
 	if term.IsTerminal(0) {
 		log.Debug("in a term")
 	} else {
@@ -37,41 +40,44 @@ func main() {
 			}
 		}
 	}
-	s, err := extablishSession(log)
+	err = a.extablishSession()
 	if err != nil {
 		log.Fatal("failed to establish tabletop.events session", "error", err)
 		return
 	}
 
-	con := SelectConvention(log, s)
-	println(log, tui.H3.Border(tui.DataBorder, true).Render(
+	con := a.SelectConvention()
+	println(tui.H3.Border(tui.DataBorder, true).Render(
 		fmt.Sprintf("%s : %s - %s\n\t%s\n\thttp://tabletop.events%s",
 			con.Name, con.StartDate, con.EndDate, con.WebsiteURI, con.ViewURI)))
-	// println("selected:", con.Name)
+	a.println("selected:", con.Name)
 	// os.Exit(1)
 
 	var evz []tte.ConventionEvent
-	evz, err = getEvents(log, s, con)
+	evz, err = a.getEvents()
 	if err != nil {
 		log.Fatal("failed to get events", "con", con.ViewURI, "error", err)
 	}
 	log.Info("found", "event_count", len(evz))
 
-	counts, eventTypeURIByTypeName := getEventTypes(evz, err, s, log)
+	counts, eventTypeURIByTypeName := a.getEventTypes(evz)
 
 	log.Info("found", "event_type_count", len(counts))
 
-	displayEventTypeSummary(counts, eventTypeURIByTypeName)
+	a.displayEventTypeSummary(counts, eventTypeURIByTypeName)
 
 	eventTypeNameByURI := map[string]string{}
 	for k, v := range eventTypeURIByTypeName {
 		eventTypeNameByURI[v] = k
 	}
 
+	a.readLikesFromCache()
+	var allLiked = a.likes
+
 	var stop bool
 	for !stop {
 
-		filteredEvents := filterEventTypes(log, s, con, evz, eventTypeURIByTypeName)
+		filteredEvents := a.filterEventTypes(evz, eventTypeURIByTypeName)
 		log.Info("filtered events", "filtered", len(filteredEvents), "total", len(evz))
 
 		sort.Slice(filteredEvents, func(i, j int) bool {
@@ -81,7 +87,35 @@ func main() {
 			return filteredEvents[i].Name < filteredEvents[j].Name
 		})
 
-		displayEvents(log, width, filteredEvents, eventTypeNameByURI)
+		a.displayEvents(log, width, filteredEvents, eventTypeNameByURI)
+
+		var noLike = true
+
+		huh.NewConfirm().
+			Title("like one of these?").
+			Affirmative("No.").
+			Negative("Yes!").
+			Value(&noLike).
+			WithTheme(huh.ThemeBase16()).
+			Run()
+
+		if !noLike {
+			//TODO diplay a ui to multiselect these
+			var options []huh.Option[string]
+			for _, fe := range filteredEvents {
+				value := fe.ViewURI
+				key := fmt.Sprintf("%d - %s [%s] (%s)", fe.EventNumber, fe.Name, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
+				options = append(options, huh.NewOption(key, value))
+			}
+			var liked []string
+			huh.NewMultiSelect[string]().
+				Title("Like Events").
+				Options(options...).
+				Value(&liked).
+				WithTheme(huh.ThemeBase16()).
+				Run()
+			allLiked = append(allLiked, liked...)
+		}
 
 		huh.NewConfirm().
 			Title("again?").
@@ -91,17 +125,72 @@ func main() {
 			WithTheme(huh.ThemeBase16()).
 			Run()
 	}
+	var open bool
+	huh.NewConfirm().
+		Title("open liked events?").
+		Affirmative("Yes!").
+		Negative("No.").
+		Value(&open).
+		WithTheme(huh.ThemeBase16()).
+		Run()
+
+	sort.Strings(allLiked)
+	for _, like := range allLiked {
+		if open {
+			var url string
+			url = fmt.Sprintf("https://tabletop.events%s", like)
+
+			log.Info("opening", "url", url)
+			cmd := exec.Command("open", url)
+			_, _ = cmd.Output()
+		} else {
+			log.Info("liked", "uri", like)
+		}
+	}
+	a.db.Store("liked", con.ViewURI, "txt", []byte(strings.Join(allLiked, "\n")))
 }
 
-func displayEvents(log logging.Logger, width int, events []tte.ConventionEvent, eventTypeNameByURI map[string]string) {
+func (a *app) readLikesFromCache() {
+	var b []byte
+	b, _ = a.db.Read("liked", a.con.ViewURI, "txt")
+	a.likes = strings.Split(string(b), "\n")
+}
+
+type app struct {
+	con   tte.Convention
+	db    tte.DB
+	likes []string
+	log   logging.Logger
+	s     tte.Session
+}
+
+func (a *app) isLiked(ce tte.ConventionEvent) bool {
+	for _, l := range a.likes {
+		if l == ce.ViewURI {
+			return true
+		}
+	}
+	return false
+}
+func (a *app) displayEvents(log logging.Logger, width int, events []tte.ConventionEvent, eventTypeNameByURI map[string]string) {
 	keys := []string{"name", "number", "type", "start", "duration", "description", "publisher", "host group", "game master", "url"} //, "host"}
 	const padding = 8
 	var maxFieldWidth = 80 // width - 12 - padding - 18
+	likeMap := make(map[string]struct{})
+	for _, l := range a.likes {
+		likeMap[l] = struct{}{}
+	}
 	for _, ev := range events {
 		var out string
 		// out += fmt.Sprintf("%7d - %-20s - %s\n", counts[tn], trimLen(tn, 20), eventURIByTypeName[tn])
+
+		name := ev.Name
+		if _, ok := likeMap[ev.ViewURI]; ok {
+			liked := logging.WarnStyle.Style.Bold(true).Render("(*)")
+			name = fmt.Sprintf("%s%s", liked, ev.Name)
+		}
 		m := map[string]string{
-			"name":        ev.Name,
+			"name":        name,
 			"number":      fmt.Sprintf("%d", ev.EventNumber),
 			"type":        eventTypeNameByURI[ev.Relationships.Type],
 			"start":       string(ev.StartdaypartName),
@@ -131,16 +220,16 @@ func displayEvents(log logging.Logger, width int, events []tte.ConventionEvent, 
 				}
 			}
 		}
-		println(log, lipgloss.NewStyle().
+		println(lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder(), true).
 			Italic(true).
-			MaxWidth(width-padding).
+			MaxWidth(width - padding).
 			Render(out[:len(out)-1]))
 	}
-
+	println("\n")
 }
 
-func println(log logging.Logger, args ...any) {
+func (a *app) println(args ...any) {
 	fmt.Println(args...)
 	// filePath := "./log.txt"
 	// if log != nil {
@@ -199,7 +288,8 @@ func splitString(s string, partLength int) []string {
 	return result
 }
 
-func filterEventTypes(log logging.Logger, s tte.Session, con tte.Convention, events []tte.ConventionEvent, eventTypeURIByTypeName map[string]string) (filteredEvents []tte.ConventionEvent) {
+func (a *app) filterEventTypes(events []tte.ConventionEvent, eventTypeURIByTypeName map[string]string) (filteredEvents []tte.ConventionEvent) {
+
 	eventTypeNameByURI := make(map[string]string)
 	var eventTypeOpts []huh.Option[string]
 	for k, v := range eventTypeURIByTypeName {
@@ -213,16 +303,22 @@ func filterEventTypes(log logging.Logger, s tte.Session, con tte.Convention, eve
 
 	var (
 		eventTypes  []string
-		title       string
 		description string
 		host        string
+		id          string
+		title       string
+		areLiked    string
 	)
 
 	huh.NewForm(
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().Title("Event Type(s)").
 				Options(eventTypeOpts...).Value(&eventTypes),
+			huh.NewInput().Title("ID").Value(&id),
 			huh.NewInput().Title("Title Match").Value(&title),
+			huh.NewSelect[string]().Title("Liked Events").
+				Options(huh.NewOption[string]("liked", "liked"), huh.NewOption[string]("not liked", "not liked"), huh.NewOption[string]("either", "either")).
+				Value(&areLiked),
 			huh.NewInput().Title("Description Match").Value(&description),
 			huh.NewInput().Title("Hosting Group").Value(&host),
 		).Title("Filter Events"),
@@ -230,10 +326,34 @@ func filterEventTypes(log logging.Logger, s tte.Session, con tte.Convention, eve
 		WithShowHelp(true).
 		WithShowErrors(true).
 		Run()
+
 	var pred []tte.EventPredicate
 	if len(title) > 0 {
 		pred = append(pred, func(ce tte.ConventionEvent) bool {
 			return strings.Contains(strings.ToLower(ce.Name), strings.ToLower(title))
+		})
+	}
+	if len(id) > 0 {
+		pred = append(pred, func(ce tte.ConventionEvent) bool {
+			return strings.ToLower(ce.ID) == strings.ToLower(id)
+		})
+	}
+	if len(areLiked) > 0 && areLiked != "either" {
+		pred = append(pred, func(ce tte.ConventionEvent) bool {
+			if areLiked == "liked" {
+				for _, l := range a.likes {
+					if l == ce.ViewURI {
+						return true
+					}
+				}
+				return false
+			}
+			for _, l := range a.likes {
+				if l == ce.ViewURI {
+					return false
+				}
+			}
+			return true
 		})
 	}
 	if len(host) > 0 {
@@ -263,7 +383,7 @@ func filterEventTypes(log logging.Logger, s tte.Session, con tte.Convention, eve
 	return tte.FilterableConventionEvents(events).Filter(pred)
 }
 
-func displayEventTypeSummary(counts map[string]int, eventURIByTypeName map[string]string) {
+func (a *app) displayEventTypeSummary(counts map[string]int, eventURIByTypeName map[string]string) {
 	var typeNames = make([]string, 0, len(counts))
 	for k := range counts {
 		typeNames = append(typeNames, k)
@@ -274,19 +394,21 @@ func displayEventTypeSummary(counts map[string]int, eventURIByTypeName map[strin
 	for _, tn := range typeNames {
 		out += fmt.Sprintf("%7d - %-20s - %s\n", counts[tn], trimLen(tn, 20), eventURIByTypeName[tn])
 	}
-	println(nil, lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true).Italic(true).Render(out[:len(out)-1]))
+	println(lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true).Italic(true).Render(out[:len(out)-1]))
 }
 
-func getEventTypes(evz []tte.ConventionEvent, err error, s tte.Session, log logging.Log) (map[string]int, map[string]string) {
+func (a *app) getEventTypes(evz []tte.ConventionEvent) (map[string]int, map[string]string) {
+
 	counts := make(map[string]int)
-	// eventTypeByID := make(map[string]tte.ConventionEventType)
-	// eventTypeByName := make(map[string]tte.ConventionEventType)
 	eventTypeByURI := make(map[string]tte.ConventionEventType)
 	eventURIByTypeName := make(map[string]string)
 
 	var (
+		err error
 		cet tte.ConventionEventType
+		log logging.Logger = a.log
 		ok  bool
+		s   tte.Session = a.s
 	)
 	for _, ev := range evz {
 		if cet, ok = eventTypeByURI[ev.Relationships.Type]; !ok {
@@ -309,7 +431,12 @@ func trimLen(s string, maxLex int) string {
 	return s[:maxLex]
 }
 
-func getEvents(log logging.Logger, s tte.Session, con tte.Convention) (events []tte.ConventionEvent, err error) {
+func (a *app) getEvents() (events []tte.ConventionEvent, err error) {
+	var (
+		log logging.Logger = a.log
+		s   tte.Session    = a.s
+		con tte.Convention = a.con
+	)
 	var ignoreCachedEventInfo bool
 	ignoreCachedEventInfo = true
 	cache, err := s.GetCachedConventionEvents(con)
@@ -334,7 +461,8 @@ func getEvents(log logging.Logger, s tte.Session, con tte.Convention) (events []
 	return events, err
 }
 
-func extablishSession(log logging.Log) (tte.Session, error) {
+func (a *app) extablishSession() error {
+	var log logging.Logger = a.log
 	var useCachedApiKey bool = true
 	c, err := tte.RestoreClient(log)
 	useCachedApiKey = err == nil
@@ -350,7 +478,7 @@ func extablishSession(log logging.Log) (tte.Session, error) {
 	}
 
 	var s tte.Session
-	s, err = c.RestoreSession(log)
+	s, err = c.RestoreSession()
 	if err != nil { //|| !useCachedSessionId {
 		log.Info("creating a new session")
 
@@ -384,13 +512,17 @@ func extablishSession(log logging.Log) (tte.Session, error) {
 			log.Fatal("username and password must be provided")
 			os.Exit(1)
 		}
-		s, err = c.NewSession(log, username, password)
+		s, err = c.NewSession(username, password)
 	}
-	return s, err
+	a.s = s
+	return err
 }
 
-func SelectConvention(log logging.Logger, s tte.Session) tte.Convention {
+func (a *app) SelectConvention() tte.Convention {
 
+	var (
+		s tte.Session = a.s
+	)
 	var ignoreCachedConventionInfo bool
 	ignoreCachedConventionInfo = true
 	cache, err := s.GetCachedActiveConventions()
@@ -418,7 +550,7 @@ func SelectConvention(log logging.Logger, s tte.Session) tte.Convention {
 		conNames = append(conNames, k)
 	}
 	sort.Strings(conNames)
-	// println(strings.Join(conNames, "\n"))
+	a.println(strings.Join(conNames, "\n"))
 
 	var conName string
 	field := huh.NewSelect[string]().
@@ -429,5 +561,7 @@ func SelectConvention(log logging.Logger, s tte.Session) tte.Convention {
 		WithTheme(huh.ThemeBase16())
 	huh.NewForm(huh.NewGroup(field)).WithShowHelp(true).Run()
 
-	return conmap[conName]
+	con := conmap[conName]
+	a.con = con
+	return con
 }
