@@ -3,6 +3,8 @@ package tte
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -106,6 +108,46 @@ type ConventionEvents struct {
 	Paging Paging            `json:"paging"`
 }
 
+// Daytime time
+type Daytime string
+
+var dayOrder = map[string]int{
+	"Monday":    0,
+	"Tuesday":   2,
+	"Wednesday": 3,
+	"Thursday":  4,
+	"Friday":    5,
+	"Saturday":  6,
+	"Sunday":    7,
+}
+
+// Compare return true when dt should come before other
+func (dt Daytime) Compare(other Daytime) bool {
+	aParts := strings.Split(string(dt), " ")
+	bParts := strings.Split(string(other), " ")
+	if len(aParts) < 4 || len(bParts) < 0 {
+		return dt < other
+	}
+	if aParts[0] != bParts[0] {
+		return dayOrder[aParts[0]] < dayOrder[bParts[0]]
+	}
+	if aParts[3] != bParts[3] {
+		return aParts[3] < bParts[3]
+	}
+	aTime := strings.Split(aParts[2], ":")
+	bTime := strings.Split(bParts[2], ":")
+	//hours
+	if aTime[0] != bTime[0] {
+		ai, _ := strconv.Atoi(aTime[0])
+		bi, _ := strconv.Atoi(bTime[0])
+		return ai < bi
+	}
+	if len(aParts[2]) > 1 && len(bParts[2]) > 1 {
+		return aTime[1] < bTime[1]
+	}
+	return dt < other
+}
+
 type ConventionEvent struct {
 	EventNumber         int    `json:"event_number"`
 	Price               int    `json:"price"`
@@ -145,7 +187,7 @@ type ConventionEvent struct {
 	} `json:"custom_fields"`
 	IsTournament           int                          `json:"is_tournament"`
 	HostShowedUp           int                          `json:"host_showed_up"`
-	StartdaypartName       string                       `json:"startdaypart_name"`
+	StartdaypartName       Daytime                      `json:"startdaypart_name"`
 	HostsAlsoPlay          int                          `json:"hosts_also_play"`
 	Duration               int                          `json:"duration"`
 	HostCount              int                          `json:"host_count"`

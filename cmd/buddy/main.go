@@ -44,10 +44,10 @@ func main() {
 	}
 
 	con := SelectConvention(log, s)
-	fmt.Println(tui.H3.Border(tui.DataBorder, true).Render(
+	println(log, tui.H3.Border(tui.DataBorder, true).Render(
 		fmt.Sprintf("%s : %s - %s\n\t%s\n\thttp://tabletop.events%s",
 			con.Name, con.StartDate, con.EndDate, con.WebsiteURI, con.ViewURI)))
-	// fmt.Println("selected:", con.Name)
+	// println("selected:", con.Name)
 	// os.Exit(1)
 
 	var evz []tte.ConventionEvent
@@ -68,24 +68,48 @@ func main() {
 		eventTypeNameByURI[v] = k
 	}
 
-	filteredEvents := filterEventTypes(log, s, con, evz, eventTypeURIByTypeName)
-	log.Info("filtered events", "filtered", len(filteredEvents), "total", len(evz))
-	displayEvents(log, width, filteredEvents, eventTypeNameByURI)
+	var stop bool
+	for !stop {
+
+		filteredEvents := filterEventTypes(log, s, con, evz, eventTypeURIByTypeName)
+		log.Info("filtered events", "filtered", len(filteredEvents), "total", len(evz))
+
+		sort.Slice(filteredEvents, func(i, j int) bool {
+			if filteredEvents[i].StartdaypartName != filteredEvents[j].StartdaypartName {
+				return filteredEvents[i].StartdaypartName.Compare(filteredEvents[j].StartdaypartName)
+			}
+			return filteredEvents[i].Name < filteredEvents[j].Name
+		})
+
+		displayEvents(log, width, filteredEvents, eventTypeNameByURI)
+
+		huh.NewConfirm().
+			Title("again?").
+			Affirmative("No.").
+			Negative("Yes!").
+			Value(&stop).
+			WithTheme(huh.ThemeBase16()).
+			Run()
+	}
 }
 
 func displayEvents(log logging.Logger, width int, events []tte.ConventionEvent, eventTypeNameByURI map[string]string) {
-	keys := []string{"name", "type", "start", "duration", "description", "publisher", "url"} //, "host"}
-	var maxFieldWidth = width - 12 - 4
+	keys := []string{"name", "number", "type", "start", "duration", "description", "publisher", "host group", "game master", "url"} //, "host"}
+	const padding = 8
+	var maxFieldWidth = 80 // width - 12 - padding - 18
 	for _, ev := range events {
 		var out string
 		// out += fmt.Sprintf("%7d - %-20s - %s\n", counts[tn], trimLen(tn, 20), eventURIByTypeName[tn])
 		m := map[string]string{
 			"name":        ev.Name,
+			"number":      fmt.Sprintf("%d", ev.EventNumber),
 			"type":        eventTypeNameByURI[ev.Relationships.Type],
-			"start":       ev.StartdaypartName,
+			"start":       string(ev.StartdaypartName),
 			"duration":    fmt.Sprintf("%s", time.Duration(ev.Duration)*time.Minute),
-			"description": ev.Description,
+			"description": strip(ev.Description, "\n"),
 			"publisher":   ev.CustomFields.Publisher,
+			"host group":  ev.CustomFields.HostingGroup,
+			"game master": ev.CustomFields.GM,
 			"url":         "https://tabletop.events" + ev.ViewURI,
 			// "game": ev.
 			// "host":        ev.Relationships.Eventhosts,
@@ -93,23 +117,72 @@ func displayEvents(log logging.Logger, width int, events []tte.ConventionEvent, 
 		for _, key := range keys {
 			value := m[key]
 			if len(value) < maxFieldWidth {
-				out += fmt.Sprintf("%-12s: %s\n", key, value)
+				out += fmt.Sprintf("%12s: %s\n", key, value)
 			} else {
 				field := key
 				vz := splitString(value, maxFieldWidth)
 				for i, v := range vz {
 					if i > 0 {
-						field = "           ."
+						field = "           "
+						out += fmt.Sprintf("%12s  %s\n", field, v)
+					} else {
+						out += fmt.Sprintf("%12s: %s\n", field, v)
 					}
-					out += fmt.Sprintf("%-12s: %s\n", field, v)
 				}
 			}
 		}
-		fmt.Println(lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true).Italic(true).Render(out[:len(out)-1]))
+		println(log, lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder(), true).
+			Italic(true).
+			MaxWidth(width-padding).
+			Render(out[:len(out)-1]))
 	}
 
 }
 
+func println(log logging.Logger, args ...any) {
+	fmt.Println(args...)
+	// filePath := "./log.txt"
+	// if log != nil {
+	// 	log.Debug("writing log", "path", filePath)
+	// }
+	// data := strings.Join(argsToStrings(args), " ")
+	// _ = os.WriteFile(filePath, []byte(data), os.FileMode(0644))
+}
+
+func argsToStrings(args []any) (sz []string) {
+	sz = make([]string, 0, len(args))
+	for _, arg := range args {
+		sz = append(sz, argToString(arg))
+	}
+	return sz
+}
+
+func argToString(arg any) string {
+	switch v := arg.(type) {
+	case string:
+		return v
+	case fmt.Stringer:
+		return v.String()
+	case error:
+		return v.Error()
+	case int, int16, int32, int64, int8, uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%d", v)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func strip(s string, cutset string) string {
+	var out []rune
+	for _, r := range s {
+		if strings.Contains(cutset, string(r)) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return string(out)
+}
 func splitString(s string, partLength int) []string {
 	if partLength <= 0 {
 		return []string{s}
@@ -134,21 +207,24 @@ func filterEventTypes(log logging.Logger, s tte.Session, con tte.Convention, eve
 		eventTypeOpts = append(eventTypeOpts, huh.NewOption(k, v))
 	}
 
-	var eventTypes []string
-	var title string
-	var description string
+	sort.Slice(eventTypeOpts, func(i, j int) bool {
+		return eventTypeOpts[i].Key < eventTypeOpts[j].Key
+	})
+
+	var (
+		eventTypes  []string
+		title       string
+		description string
+		host        string
+	)
+
 	huh.NewForm(
 		huh.NewGroup(
-			huh.NewMultiSelect[string]().
-				Title("Event Type(s)").
-				Options(eventTypeOpts...).
-				Value(&eventTypes),
-			huh.NewInput().
-				Title("Title Match").
-				Value(&title),
-			huh.NewInput().
-				Title("Description Match").
-				Value(&description),
+			huh.NewMultiSelect[string]().Title("Event Type(s)").
+				Options(eventTypeOpts...).Value(&eventTypes),
+			huh.NewInput().Title("Title Match").Value(&title),
+			huh.NewInput().Title("Description Match").Value(&description),
+			huh.NewInput().Title("Hosting Group").Value(&host),
 		).Title("Filter Events"),
 	).WithTheme(huh.ThemeBase16()).
 		WithShowHelp(true).
@@ -158,6 +234,11 @@ func filterEventTypes(log logging.Logger, s tte.Session, con tte.Convention, eve
 	if len(title) > 0 {
 		pred = append(pred, func(ce tte.ConventionEvent) bool {
 			return strings.Contains(strings.ToLower(ce.Name), strings.ToLower(title))
+		})
+	}
+	if len(host) > 0 {
+		pred = append(pred, func(ce tte.ConventionEvent) bool {
+			return strings.Contains(strings.ToLower(ce.CustomFields.HostingGroup), strings.ToLower(host))
 		})
 	}
 	if len(description) > 0 {
@@ -193,7 +274,7 @@ func displayEventTypeSummary(counts map[string]int, eventURIByTypeName map[strin
 	for _, tn := range typeNames {
 		out += fmt.Sprintf("%7d - %-20s - %s\n", counts[tn], trimLen(tn, 20), eventURIByTypeName[tn])
 	}
-	fmt.Println(lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true).Italic(true).Render(out[:len(out)-1]))
+	println(nil, lipgloss.NewStyle().Border(lipgloss.RoundedBorder(), true).Italic(true).Render(out[:len(out)-1]))
 }
 
 func getEventTypes(evz []tte.ConventionEvent, err error, s tte.Session, log logging.Log) (map[string]int, map[string]string) {
@@ -337,7 +418,7 @@ func SelectConvention(log logging.Logger, s tte.Session) tte.Convention {
 		conNames = append(conNames, k)
 	}
 	sort.Strings(conNames)
-	// fmt.Println(strings.Join(conNames, "\n"))
+	// println(strings.Join(conNames, "\n"))
 
 	var conName string
 	field := huh.NewSelect[string]().
