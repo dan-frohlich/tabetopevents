@@ -110,7 +110,7 @@ func main() {
 					}
 					value := fe.ViewURI
 					eventType := eventTypeNameByURI[fe.Relationships.Type]
-					key := fmt.Sprintf("%d - %s [%s] [%s] (%s)", fe.EventNumber, fe.Name, eventType, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
+					key := fmt.Sprintf("%4d - [%-16s] %s [%s] (%s)", fe.EventNumber, eventType, tui.H4.Render(fe.Name), string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
 					options = append(options, huh.NewOption(key, value))
 				}
 				if len(options) > 0 {
@@ -144,7 +144,7 @@ func main() {
 					}
 					value := fe.ViewURI
 					eventType := eventTypeNameByURI[fe.Relationships.Type]
-					key := fmt.Sprintf("%d - %s [%s] [%s] (%s)", fe.EventNumber, fe.Name, eventType, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
+					key := fmt.Sprintf("%4d - [%-16s] %s [%s] (%s)", fe.EventNumber, eventType, tui.H4.Render(fe.Name), string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
 					options = append(options, huh.NewOption(key, value))
 				}
 				if len(options) > 0 {
