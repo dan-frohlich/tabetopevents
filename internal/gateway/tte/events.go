@@ -125,14 +125,17 @@ var dayOrder = map[string]int{
 func (dt Daytime) Compare(other Daytime) bool {
 	aParts := strings.Split(string(dt), " ")
 	bParts := strings.Split(string(other), " ")
-	if len(aParts) < 4 || len(bParts) < 0 {
+	if len(aParts) < 5 || len(bParts) < 5 {
+		fmt.Println("not enough parts")
 		return dt < other
 	}
 	if aParts[0] != bParts[0] {
+		fmt.Println("compare by days", aParts[0], bParts[0])
 		return dayOrder[aParts[0]] < dayOrder[bParts[0]]
 	}
-	if aParts[3] != bParts[3] {
-		return aParts[3] < bParts[3]
+	if aParts[4] != bParts[4] {
+		fmt.Println("compare by AM PM", aParts[4], bParts[4])
+		return aParts[4] < bParts[4]
 	}
 	aTime := strings.Split(aParts[2], ":")
 	bTime := strings.Split(bParts[2], ":")

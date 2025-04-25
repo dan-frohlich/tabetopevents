@@ -19,7 +19,7 @@ import (
 
 func main() {
 	log := logging.Log{Level: logging.LogLevelInfo}
-	a := app{log: log, db: tte.NewDB(log)}
+	a := &app{log: log, db: tte.NewDB(log)}
 
 	if term.IsTerminal(0) {
 		log.Debug("in a term")
@@ -105,18 +105,23 @@ func main() {
 				//TODO diplay a ui to multiselect these
 				var options []huh.Option[string]
 				for _, fe := range filteredEvents {
+					if a.isLiked(fe) {
+						continue
+					}
 					value := fe.ViewURI
 					key := fmt.Sprintf("%d - %s [%s] (%s)", fe.EventNumber, fe.Name, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
 					options = append(options, huh.NewOption(key, value))
 				}
-				var liked []string
-				huh.NewMultiSelect[string]().
-					Title("Like Events").
-					Options(options...).
-					Value(&liked).
-					WithTheme(huh.ThemeBase16()).
-					Run()
-				allLiked = append(allLiked, liked...)
+				if len(options) > 0 {
+					var liked []string
+					huh.NewMultiSelect[string]().
+						Title("Like Events").
+						Options(options...).
+						Value(&liked).
+						WithTheme(huh.ThemeBase16()).
+						Run()
+					allLiked = append(allLiked, liked...)
+				}
 			}
 
 			var unlike = false
@@ -133,31 +138,40 @@ func main() {
 				//TODO diplay a ui to multiselect these
 				var options []huh.Option[string]
 				for _, fe := range filteredEvents {
+					if !a.isLiked(fe) {
+						continue
+					}
 					value := fe.ViewURI
 					key := fmt.Sprintf("%d - %s [%s] (%s)", fe.EventNumber, fe.Name, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
 					options = append(options, huh.NewOption(key, value))
 				}
-				var unliked []string
-				huh.NewMultiSelect[string]().
-					Title("Un-Like Events").
-					Options(options...).
-					Value(&unliked).
-					WithTheme(huh.ThemeBase16()).
-					Run()
-				//TODO remove unlined from allLiked
-				var result []string
-				var set = make(map[string]struct{})
-				for _, ul := range unliked {
-					set[ul] = struct{}{}
-				}
-				for _, l := range allLiked {
-					if _, ok := set[l]; !ok {
-						result = append(result, l)
+				if len(options) > 0 {
+					var unliked []string
+					huh.NewMultiSelect[string]().
+						Title("Un-Like Events").
+						Options(options...).
+						Value(&unliked).
+						WithTheme(huh.ThemeBase16()).
+						Run()
+					//TODO remove unlined from allLiked
+					var result []string
+					var set = make(map[string]struct{})
+					for _, ul := range unliked {
+						set[ul] = struct{}{}
 					}
+					for _, l := range allLiked {
+						if _, ok := set[l]; !ok {
+							result = append(result, l)
+						}
+					}
+					allLiked = result
+
 				}
-				allLiked = result
 			}
 		}
+		sort.Strings(allLiked)
+		a.likes = allLiked
+		a.db.Store("liked", con.ViewURI, "txt", []byte(strings.Join(allLiked, "\n")))
 		huh.NewConfirm().
 			Title("again?").
 			Affirmative("No.").
