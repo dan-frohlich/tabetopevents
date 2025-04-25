@@ -109,7 +109,8 @@ func main() {
 						continue
 					}
 					value := fe.ViewURI
-					key := fmt.Sprintf("%d - %s [%s] (%s)", fe.EventNumber, fe.Name, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
+					eventType := eventTypeNameByURI[fe.Relationships.Type]
+					key := fmt.Sprintf("%d - %s [%s] [%s] (%s)", fe.EventNumber, fe.Name, eventType, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
 					options = append(options, huh.NewOption(key, value))
 				}
 				if len(options) > 0 {
@@ -142,7 +143,8 @@ func main() {
 						continue
 					}
 					value := fe.ViewURI
-					key := fmt.Sprintf("%d - %s [%s] (%s)", fe.EventNumber, fe.Name, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
+					eventType := eventTypeNameByURI[fe.Relationships.Type]
+					key := fmt.Sprintf("%d - %s [%s] [%s] (%s)", fe.EventNumber, fe.Name, eventType, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
 					options = append(options, huh.NewOption(key, value))
 				}
 				if len(options) > 0 {
