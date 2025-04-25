@@ -121,31 +121,33 @@ var dayOrder = map[string]int{
 	"Sunday":    7,
 }
 
+func (dt Daytime) Split() (day string, time string, am bool) {
+	parts := strings.Split(strings.ReplaceAll(string(dt), "  ", " "), " ")
+	return parts[0], parts[2], strings.ToLower(parts[3]) == "am"
+}
+
 // Compare return true when dt should come before other
 func (dt Daytime) Compare(other Daytime) bool {
-	aParts := strings.Split(string(dt), " ")
-	bParts := strings.Split(string(other), " ")
-	if len(aParts) < 5 || len(bParts) < 5 {
-		fmt.Println("not enough parts")
-		return dt < other
+	aDay, aT, aAM := dt.Split()
+	bDay, bT, bAM := other.Split()
+	if aDay != bDay {
+		return dayOrder[aDay] < dayOrder[bDay]
 	}
-	if aParts[0] != bParts[0] {
-		fmt.Println("compare by days", aParts[0], bParts[0])
-		return dayOrder[aParts[0]] < dayOrder[bParts[0]]
+	if aAM != bAM {
+		if aAM {
+			return true
+		}
+		return false
 	}
-	if aParts[4] != bParts[4] {
-		fmt.Println("compare by AM PM", aParts[4], bParts[4])
-		return aParts[4] < bParts[4]
-	}
-	aTime := strings.Split(aParts[2], ":")
-	bTime := strings.Split(bParts[2], ":")
+	aTime := strings.Split(aT, ":")
+	bTime := strings.Split(bT, ":")
 	//hours
 	if aTime[0] != bTime[0] {
 		ai, _ := strconv.Atoi(aTime[0])
 		bi, _ := strconv.Atoi(bTime[0])
 		return ai < bi
 	}
-	if len(aParts[2]) > 1 && len(bParts[2]) > 1 {
+	if len(aT) > 1 && len(bT) > 1 {
 		return aTime[1] < bTime[1]
 	}
 	return dt < other
