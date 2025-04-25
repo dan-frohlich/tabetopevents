@@ -89,34 +89,75 @@ func main() {
 
 		a.displayEvents(log, width, filteredEvents, eventTypeNameByURI)
 
-		var noLike = true
+		var like = false
 
-		huh.NewConfirm().
-			Title("like one of these?").
-			Affirmative("No.").
-			Negative("Yes!").
-			Value(&noLike).
-			WithTheme(huh.ThemeBase16()).
-			Run()
+		if len(filteredEvents) > 0 {
 
-		if !noLike {
-			//TODO diplay a ui to multiselect these
-			var options []huh.Option[string]
-			for _, fe := range filteredEvents {
-				value := fe.ViewURI
-				key := fmt.Sprintf("%d - %s [%s] (%s)", fe.EventNumber, fe.Name, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
-				options = append(options, huh.NewOption(key, value))
-			}
-			var liked []string
-			huh.NewMultiSelect[string]().
-				Title("Like Events").
-				Options(options...).
-				Value(&liked).
+			huh.NewConfirm().
+				Title("like some of these?").
+				Affirmative("Yes!").
+				Negative("No.").
+				Value(&like).
 				WithTheme(huh.ThemeBase16()).
 				Run()
-			allLiked = append(allLiked, liked...)
-		}
 
+			if like {
+				//TODO diplay a ui to multiselect these
+				var options []huh.Option[string]
+				for _, fe := range filteredEvents {
+					value := fe.ViewURI
+					key := fmt.Sprintf("%d - %s [%s] (%s)", fe.EventNumber, fe.Name, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
+					options = append(options, huh.NewOption(key, value))
+				}
+				var liked []string
+				huh.NewMultiSelect[string]().
+					Title("Like Events").
+					Options(options...).
+					Value(&liked).
+					WithTheme(huh.ThemeBase16()).
+					Run()
+				allLiked = append(allLiked, liked...)
+			}
+
+			var unlike = false
+
+			huh.NewConfirm().
+				Title("un-like some of these?").
+				Affirmative("Yes!").
+				Negative("No.").
+				Value(&unlike).
+				WithTheme(huh.ThemeBase16()).
+				Run()
+
+			if unlike {
+				//TODO diplay a ui to multiselect these
+				var options []huh.Option[string]
+				for _, fe := range filteredEvents {
+					value := fe.ViewURI
+					key := fmt.Sprintf("%d - %s [%s] (%s)", fe.EventNumber, fe.Name, string(fe.StartdaypartName), fmt.Sprintf("%s", time.Duration(fe.Duration)*time.Minute))
+					options = append(options, huh.NewOption(key, value))
+				}
+				var unliked []string
+				huh.NewMultiSelect[string]().
+					Title("Un-Like Events").
+					Options(options...).
+					Value(&unliked).
+					WithTheme(huh.ThemeBase16()).
+					Run()
+				//TODO remove unlined from allLiked
+				var result []string
+				var set = make(map[string]struct{})
+				for _, ul := range unliked {
+					set[ul] = struct{}{}
+				}
+				for _, l := range allLiked {
+					if _, ok := set[l]; !ok {
+						result = append(result, l)
+					}
+				}
+				allLiked = result
+			}
+		}
 		huh.NewConfirm().
 			Title("again?").
 			Affirmative("No.").
@@ -317,7 +358,7 @@ func (a *app) filterEventTypes(events []tte.ConventionEvent, eventTypeURIByTypeN
 			huh.NewInput().Title("ID").Value(&id),
 			huh.NewInput().Title("Title Match").Value(&title),
 			huh.NewSelect[string]().Title("Liked Events").
-				Options(huh.NewOption[string]("liked", "liked"), huh.NewOption[string]("not liked", "not liked"), huh.NewOption[string]("either", "either")).
+				Options(huh.NewOption[string]("either", "either"), huh.NewOption[string]("liked", "liked"), huh.NewOption[string]("not liked", "not liked")).
 				Value(&areLiked),
 			huh.NewInput().Title("Description Match").Value(&description),
 			huh.NewInput().Title("Hosting Group").Value(&host),
