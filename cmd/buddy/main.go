@@ -191,17 +191,34 @@ func main() {
 		WithTheme(huh.ThemeBase16()).
 		Run()
 
+	pred := func(ce tte.ConventionEvent) bool {
+		for _, l := range allLiked {
+			if l == ce.ViewURI {
+				return true
+			}
+		}
+		return false
+	}
+
+	filtered := tte.FilterableConventionEvents(evz).Filter(pred)
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].StartdaypartName != filtered[j].StartdaypartName {
+			return filtered[i].StartdaypartName.Compare(filtered[j].StartdaypartName)
+		}
+		return filtered[j].Name < filtered[j].Name
+	})
+
 	sort.Strings(allLiked)
-	for _, like := range allLiked {
+	for _, like := range filtered {
 		if open {
 			var url string
-			url = fmt.Sprintf("https://tabletop.events%s", like)
+			url = fmt.Sprintf("https://tabletop.events%s", like.ViewURI)
 
 			log.Info("opening", "url", url)
 			cmd := exec.Command("open", url)
 			_, _ = cmd.Output()
 		} else {
-			log.Info("liked", "uri", like)
+			log.Info("liked", "uri", like.ViewURI, "name", like.Name)
 		}
 	}
 	a.db.Store("liked", con.ViewURI, "txt", []byte(strings.Join(allLiked, "\n")))
@@ -437,7 +454,7 @@ func (a *app) filterEventTypes(events []tte.ConventionEvent, eventTypeURIByTypeN
 		})
 	}
 
-	return tte.FilterableConventionEvents(events).Filter(pred)
+	return tte.FilterableConventionEvents(events).Filter(pred...)
 }
 
 func (a *app) displayEventTypeSummary(counts map[string]int, eventURIByTypeName map[string]string) {

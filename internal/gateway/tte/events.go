@@ -74,7 +74,7 @@ func (s Session) getConventionEventsByPage(conID string, page int) (cr Conventio
 type FilterableConventionEvents []ConventionEvent
 type EventPredicate func(ConventionEvent) bool
 
-func (ez FilterableConventionEvents) Filter(predicates []EventPredicate) (filtered FilterableConventionEvents) {
+func (ez FilterableConventionEvents) Filter(predicates ...EventPredicate) (filtered FilterableConventionEvents) {
 	if len(predicates) == 0 {
 		return ez
 	}
